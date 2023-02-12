@@ -75,7 +75,8 @@ import amidst.util.SwingUtils;
 @NotThreadSafe
 public class BiomeExporterDialog {
 	private static final int PREVIEW_SIZE = 100;
-	private static final ExecutorService previewUpdater = Executors.newSingleThreadExecutor(r -> new Thread(r, "BiomePreviewUpdater"));
+	private static final ExecutorService previewUpdater = Executors
+			.newSingleThreadExecutor(r -> new Thread(r, "BiomePreviewUpdater"));
 
 	private final Setting<String> lastBiomeExportPath;
 	private final BiomeExporter biomeExporter;
@@ -98,7 +99,8 @@ public class BiomeExporterDialog {
 	private BiomeDataOracle biomeDataOracle;
 	private Consumer<Entry<ProgressEntryType, Integer>> progressListener;
 
-	public BiomeExporterDialog(BiomeExporter biomeExporter, Frame parentFrame, BiomeProfileSelection biomeProfileSelection,
+	public BiomeExporterDialog(BiomeExporter biomeExporter, Frame parentFrame,
+			BiomeProfileSelection biomeProfileSelection,
 			Supplier<AmidstMenu> menuBarSupplier, Setting<String> lastBiomeExportPath) {
 		// @formatter:off
 		this.lastBiomeExportPath   = lastBiomeExportPath;
@@ -125,112 +127,137 @@ public class BiomeExporterDialog {
 	}
 
 	private JCheckBox createFullResCheckbox() {
-		JCheckBox newCheckBox = new JCheckBox("Full Resolution");
-		newCheckBox.addChangeListener(e -> {
-			renderPreview();
-		});
-		return newCheckBox;
+		JCheckBox checkBox = new JCheckBox("Full Resolution");
+		checkBox.addChangeListener(e -> renderPreview());
+		return checkBox;
 	}
 
 	private JTextField createPathField() {
-		JTextField newTextField = new JTextField();
-		newTextField.setPreferredSize(new JTextField(String.join("", Collections.nCopies(50, "_"))).getPreferredSize());
-		return newTextField;
+		JTextField textField = new JTextField();
+		textField.setPreferredSize(new JTextField(String.join("", Collections.nCopies(50, "_"))).getPreferredSize());
+		return textField;
 	}
 
 	private JSpinner createCoordinateSpinner() {
-		JSpinner newSpinner = new JSpinner(new SpinnerNumberModel(0, -30000000, 30000000, 25));
-		newSpinner.addChangeListener(e -> {
-			renderPreview();
-		});
-		return newSpinner;
+		JSpinner spinner = new JSpinner(new SpinnerNumberModel(0, -30000000, 30000000, 25));
+		spinner.addChangeListener(e -> renderPreview());
+		return spinner;
 	}
 
 	private JLabel createPreviewLabel() {
-		JLabel newLabel = new JLabel();
-
-		newLabel.setIcon(previewIcon);
-		newLabel.setBorder(new LineBorder(Color.BLACK, 2));
-		return newLabel;
+		JLabel label = new JLabel();
+		label.setIcon(previewIcon);
+		label.setBorder(new LineBorder(Color.BLACK, 2));
+		return label;
 	}
 
 	private JButton createExportButton() {
-		JButton exportButton = new JButton("Export");
-		exportButton.addActionListener((e) -> {
-			try {
-				topSpinner.commitEdit();
-				leftSpinner.commitEdit();
-				bottomSpinner.commitEdit();
-				rightSpinner.commitEdit();
-			} catch (ParseException e1) {
-				// resets itself to previous value
-			}
+		return createButtonWithAction("Export", this::exportBiome);
+	}
 
-			CoordinatesInWorld topLeft = getTopLeftCoordinates();
-			CoordinatesInWorld bottomRight = getBottomRightCoordinates();
-			if (verifyImageCoordinates(topLeft, bottomRight) && verifyPathString(pathField.getText())) {
-				Path path = Paths.get(pathField.getText());
-				lastBiomeExportPath.set(path.toAbsolutePath().getParent().toString());
-				biomeExporter.export(
-						biomeDataOracle,
-						new BiomeExporterConfiguration(
-								path,
-								!fullResCheckBox.isSelected(),
-								topLeft,
-								bottomRight,
-								biomeProfileSelection
-							),
-						progressListener,
-						menuBarSupplier.get()
-					);
-				dialog.dispose();
-			}
-		});
-		return exportButton;
+	private void exportBiome() {
+		try {
+			commitSpinnerEdits();
+		} catch (ParseException e) {
+			// Resets itself to previous value
+		}
+
+		CoordinatesInWorld topLeft = getTopLeftCoordinates();
+		CoordinatesInWorld bottomRight = getBottomRightCoordinates();
+		if (isValidExportConfiguration(topLeft, bottomRight)) {
+			Path path = Paths.get(getPathString());
+			updateLastExportPath(path);
+			exportBiome(path, topLeft, bottomRight);
+			closeDialog();
+		}
+	}
+
+	private void commitSpinnerEdits() throws ParseException {
+		topSpinner.commitEdit();
+		leftSpinner.commitEdit();
+		bottomSpinner.commitEdit();
+		rightSpinner.commitEdit();
+	}
+
+	private boolean isValidExportConfiguration(CoordinatesInWorld topLeft, CoordinatesInWorld bottomRight) {
+		return verifyImageCoordinates(topLeft, bottomRight) && verifyPathString(getPathString());
+	}
+
+	private String getPathString() {
+		return pathField.getText();
+	}
+
+	private void updateLastExportPath(Path path) {
+		lastBiomeExportPath.set(path.toAbsolutePath().getParent().toString());
+	}
+
+	private void exportBiome(Path path, CoordinatesInWorld topLeft, CoordinatesInWorld bottomRight) {
+		biomeExporter.export(biomeDataOracle, createBiomeExporterConfiguration(path, topLeft, bottomRight),
+				progressListener, menuBarSupplier.get());
+	}
+
+	private BiomeExporterConfiguration createBiomeExporterConfiguration(Path path, CoordinatesInWorld topLeft,
+			CoordinatesInWorld bottomRight) {
+		return new BiomeExporterConfiguration(path, isLowResolutionSelected(), topLeft, bottomRight,
+				biomeProfileSelection);
+	}
+
+	private boolean isLowResolutionSelected() {
+		return !fullResCheckBox.isSelected();
+	}
+
+	private void closeDialog() {
+		dialog.dispose();
+	}
+
+	private JButton createButtonWithAction(String label, Runnable action) {
+		JButton button = new JButton(label);
+		button.addActionListener(e -> action.run());
+		return button;
 	}
 
 	private boolean verifyPathString(String path) {
 		try {
 			Path p = Paths.get(path);
 			Files.createDirectories(p.getParent());
-			boolean fileExists = Files.exists(p);
-			if (fileExists && !Files.isRegularFile(p)) {
-				String message = "Unable to export to path: " + p.toString() + "\nReason: Not a file";
-				AmidstLogger.warn(message);
-				AmidstMessageBox.displayError(dialog, "Error", message);
-			} else if (!Actions.canWriteToFile(p)) {
-				String message = "Unable to export to path: " + p.toString() + "\nReason: No writing permissions";
-				AmidstLogger.warn(message);
-				AmidstMessageBox.displayError(dialog, "Error", message);
-			} else if (!fileExists || AmidstMessageBox.askToConfirmYesNo(dialog, "Replace file?",
-					"File already exists. Do you want to replace it?\n" + p.toString() + "")) {
-				return true;
+
+			if (!Files.isRegularFile(p)) {
+				AmidstMessageBox.displayError(dialog, "Error", "Not a file: " + p.toString());
+				return false;
 			}
-			return false;
+
+			if (!Actions.canWriteToFile(p)) {
+				AmidstMessageBox.displayError(dialog, "Error", "No writing permissions for: " + p.toString());
+				return false;
+			}
+
+			if (Files.exists(p) && !AmidstMessageBox.askToConfirmYesNo(dialog, "Replace file?",
+					"File already exists. Do you want to replace it?\n" + p.toString())) {
+				return false;
+			}
+
+			return true;
 		} catch (InvalidPathException e) {
-			String message = "Unable to export to path\nReason: Invalid path given";
-			AmidstLogger.warn(message);
-			AmidstMessageBox.displayError(dialog, "Error", message);
+			AmidstMessageBox.displayError(dialog, "Error", "Invalid path: " + path);
 		} catch (IOException e) {
-			String message = "Unable to export to path\nReason: Error creating directories";
-			AmidstLogger.warn(message);
-			AmidstMessageBox.displayError(dialog, "Error", message);
+			AmidstMessageBox.displayError(dialog, "Error", "Error creating directories for: " + path);
 		}
 		return false;
 	}
 
 	public boolean verifyImageCoordinates(CoordinatesInWorld topLeft, CoordinatesInWorld bottomRight) {
-		if((topLeft != null && bottomRight != null) &&
-		   (topLeft.getX() >= bottomRight.getX() || topLeft.getY() >= bottomRight.getY())) {
-			String message = "Unable to create image: Invalid image coordinates detected.";
-			AmidstLogger.warn(message);
+		if (topLeft == null || bottomRight == null)
+			return false;
+
+		if (topLeft.getX() >= bottomRight.getX() || topLeft.getY() >= bottomRight.getY()) {
+			String message = "Invalid image coordinates detected.";
+			AmidstLogger.warn("Unable to create image: " + message);
 			AmidstMessageBox.displayError(dialog, "Error", message);
 			return false;
-		} else {
-			return true;
 		}
-	}
 
+		return true;
+	}
 
 	private JButton createBrowseButton() {
 		JButton newButton = new JButton("Browse...");
@@ -258,7 +285,8 @@ public class BiomeExporterDialog {
 	}
 
 	private String getSuggestedFilename() {
-		return "biomes_" + worldOptions.getWorldType().getFilenameText() + "_" + worldOptions.getWorldSeed().getLong() + ".png";
+		return "biomes_" + worldOptions.getWorldType().getFilenameText() + "_" + worldOptions.getWorldSeed().getLong()
+				+ ".png";
 	}
 
 	private JPanel createLabeledPanel(String label, Component component, int fillConst) {
@@ -327,7 +355,8 @@ public class BiomeExporterDialog {
 				 * When this happens we know that the user did not press the ok button
 				 * to continue, so we re enable the export biomes menu button.
 				 */
-				menuBarSupplier.get().setMenuItemsEnabled(new String[] { "Export Biomes to Image ...", "Biome Profile" }, true);
+				menuBarSupplier.get()
+						.setMenuItemsEnabled(new String[] { "Export Biomes to Image ...", "Biome Profile" }, true);
 				newDialog.dispose();
 			}
 		});
@@ -340,7 +369,7 @@ public class BiomeExporterDialog {
 	private Future<?> renderTask;
 
 	private void renderPreview() {
-		if(renderTask != null && !renderTask.isDone()) {
+		if (renderTask != null && !renderTask.isDone()) {
 			renderTask.cancel(true);
 		}
 
@@ -367,24 +396,26 @@ public class BiomeExporterDialog {
 
 				int imgHeightWithoutBorders = previewImage.getHeight() - imgYOffset * 2;
 				int imgWidthWithoutBorders = previewImage.getWidth() - imgXOffset * 2;
-				for(int y = 0; y < imgHeightWithoutBorders; y++) {
-					for(int x = 0; x < imgWidthWithoutBorders; x++) {
+				for (int y = 0; y < imgHeightWithoutBorders; y++) {
+					for (int x = 0; x < imgWidthWithoutBorders; x++) {
 						int worldX = (int) ((x * imgToWorldFactor + topLeft.getX()) / quarterResFactor);
 						int worldY = (int) ((y * imgToWorldFactor + topLeft.getY()) / quarterResFactor);
 						int imgX = x + imgXOffset;
 						int imgY = y + imgYOffset;
 
-						// we use imgY instead of (previewImage.getHeight() - imgY - 1) to mirror the y axis
+						// we use imgY instead of (previewImage.getHeight() - imgY - 1) to mirror the y
+						// axis
 						int imgidx = imgY * previewImage.getWidth() + imgX;
 						Biome biome = biomeDataOracle.getBiomeAt(worldX, worldY, !fullResCheckBox.isSelected());
 						pixels[imgidx] = biomeProfileSelection.getBiomeColorOrUnknown(biome.getId()).getRGB();
 					}
 				}
 
-				previewIcon.setImage(previewImage.getScaledInstance(previewIcon.getIconWidth(), previewIcon.getIconHeight(), Image.SCALE_FAST));
+				previewIcon.setImage(previewImage.getScaledInstance(previewIcon.getIconWidth(),
+						previewIcon.getIconHeight(), Image.SCALE_FAST));
 
 				SwingUtilities.invokeLater(() -> previewLabel.repaint());
-			} catch(MinecraftInterfaceException | UnknownBiomeIdException e) {
+			} catch (MinecraftInterfaceException | UnknownBiomeIdException e) {
 				AmidstLogger.error(e);
 			}
 		});
@@ -401,12 +432,31 @@ public class BiomeExporterDialog {
 	public void createAndShow(World world, FragmentGraphToScreenTranslator translator,
 			Consumer<Entry<ProgressEntryType, Integer>> progressListener) {
 
-		menuBarSupplier.get().setMenuItemsEnabled(new String[] { "Export Biomes to Image ...", "Biome Profile" }, false);
+		disableMenuItems();
 
+		updateFields(world, translator);
+
+		renderPreview();
+		showDialog();
+	}
+
+	private void disableMenuItems() {
+		menuBarSupplier.get().setMenuItemsEnabled(new String[] { "Export Biomes to Image ...", "Biome Profile" },
+				false);
+	}
+
+	private void updateFields(World world, FragmentGraphToScreenTranslator translator) {
+		setWorldOptionsAndBiomeData(world);
+		setCoordinatesInWorld(translator);
+		setPath();
+	}
+
+	private void setWorldOptionsAndBiomeData(World world) {
 		this.worldOptions = world.getWorldOptions();
 		this.biomeDataOracle = world.getOverworldBiomeDataOracle();
-		this.progressListener = progressListener;
+	}
 
+	private void setCoordinatesInWorld(FragmentGraphToScreenTranslator translator) {
 		CoordinatesInWorld defaultTopLeft = translator.screenToWorld(new Point(0, 0));
 		CoordinatesInWorld defaultBottomRight = translator
 				.screenToWorld(new Point((int) translator.getWidth(), (int) translator.getHeight()));
@@ -415,9 +465,13 @@ public class BiomeExporterDialog {
 		topSpinner.setValue(defaultTopLeft.getY());
 		rightSpinner.setValue(defaultBottomRight.getX());
 		bottomSpinner.setValue(defaultBottomRight.getY());
-		pathField.setText(Paths.get(lastBiomeExportPath.get(), getSuggestedFilename()).toAbsolutePath().toString());
+	}
 
-		renderPreview();
+	private void setPath() {
+		pathField.setText(Paths.get(lastBiomeExportPath.get(), getSuggestedFilename()).toAbsolutePath().toString());
+	}
+
+	private void showDialog() {
 		dialog.setVisible(true);
 	}
 
@@ -425,18 +479,20 @@ public class BiomeExporterDialog {
 		menuBarSupplier.get().setMenuItemsEnabled(new String[] { "Export Biomes to Image ...", "Biome Profile" }, true);
 		SwingUtils.destroyComponentTree(dialog);
 	}
-	
+
 	public void softDispose() {
 		menuBarSupplier.get().setMenuItemsEnabled(new String[] { "Export Biomes to Image ...", "Biome Profile" }, true);
 		dialog.dispose();
 	}
 
 	private CoordinatesInWorld getTopLeftCoordinates() {
-		return new CoordinatesInWorld(((Number) leftSpinner.getValue()).longValue(), ((Number) topSpinner.getValue()).longValue());
+		return new CoordinatesInWorld(((Number) leftSpinner.getValue()).longValue(),
+				((Number) topSpinner.getValue()).longValue());
 	}
 
 	private CoordinatesInWorld getBottomRightCoordinates() {
-		return new CoordinatesInWorld(((Number) rightSpinner.getValue()).longValue(), ((Number) bottomSpinner.getValue()).longValue());
+		return new CoordinatesInWorld(((Number) rightSpinner.getValue()).longValue(),
+				((Number) bottomSpinner.getValue()).longValue());
 	}
 
 	private void setConstraints(int iTop, int iLeft, int iBottom, int iRight, int fillConst, int gridx,
