@@ -37,44 +37,29 @@ public class PlayerInformationService {
 	@NotNull
 	public PlayerInformation fromUUID(String uuid) {
 		Optional<PlayerJson> optionalPlayer = tryGetPlayerJsonByUUID(uuid);
-		Optional<WorldIconImage> head;
+		WorldIconImage playerHead = DEFAULT_HEAD;
 		if (optionalPlayer.isPresent()) {
 			PlayerJson player = optionalPlayer.get();
-			head = tryGetSkinUrl(player).flatMap(this::tryGetPlayerHeadBySkinUrl);
-			if (head.isPresent()) {
-				return new PlayerInformation(player.getId(), player.getName(), head.get());
-			} else {
-				return new PlayerInformation(player.getId(), player.getName(), DEFAULT_HEAD);
-			}
-		} else {
-			return new PlayerInformation(uuid, null, DEFAULT_HEAD);
+			Optional<WorldIconImage> head = tryGetSkinUrl(player).flatMap(this::tryGetPlayerHeadBySkinUrl);
+			playerHead = head.orElse(DEFAULT_HEAD);
 		}
+		return new PlayerInformation(uuid, optionalPlayer.map(PlayerJson::getName).orElse(null), playerHead);
 	}
 
 	@NotNull
 	public PlayerInformation fromName(String name) {
 		Optional<PlayerJson> optionalPlayer = tryGetPlayerJsonByName(name);
-		Optional<WorldIconImage> head;
+		Optional<WorldIconImage> head = Optional.empty();
 		if (optionalPlayer.isPresent()) {
 			PlayerJson player = optionalPlayer.get();
 			head = tryGetSkinUrl(player).flatMap(this::tryGetPlayerHeadBySkinUrl);
-			if (head.isPresent()) {
-				return new PlayerInformation(player.getId(), player.getName(), head.get());
-			} else {
-				head = tryGetPlayerHeadByName(name);
-				if (head.isPresent()) {
-					return new PlayerInformation(player.getId(), player.getName(), head.get());
-				} else {
-					return new PlayerInformation(player.getId(), player.getName(), DEFAULT_HEAD);
-				}
-			}
+		}
+		if (head.isPresent()) {
+			return new PlayerInformation(optionalPlayer.map(PlayerJson::getId).orElse(null), name, head.get());
 		} else {
 			head = tryGetPlayerHeadByName(name);
-			if (head.isPresent()) {
-				return new PlayerInformation(null, name, head.get());
-			} else {
-				return new PlayerInformation(null, name, DEFAULT_HEAD);
-			}
+			return new PlayerInformation(optionalPlayer.map(PlayerJson::getId).orElse(null), name,
+					head.orElse(DEFAULT_HEAD));
 		}
 	}
 
@@ -101,31 +86,22 @@ public class PlayerInformationService {
 	}
 
 	private boolean isTexturesProperty(PropertyJson propertyJson) throws FormatException {
-		String name = propertyJson.getName();
-		if (name == null) {
-			throw new FormatException("property has no name");
-		} else {
-			return name.equals("textures");
-		}
+		return "textures".equals(propertyJson.getName());
 	}
 
 	@NotNull
-	private String getDecodedValue(PropertyJson propertyJson) throws FormatException {
+	private String getDecodedValue(PropertyJson propertyJson) {
 		String value = propertyJson.getValue();
-		if (value == null) {
-			throw new FormatException("unable to decode property value");
-		} else {
-			return new String(
-					Base64.getDecoder().decode(value.getBytes(StandardCharsets.UTF_8)),
-					StandardCharsets.UTF_8);
-		}
+		return value == null ? null
+				: new String(Base64.getDecoder().decode(value.getBytes(StandardCharsets.UTF_8)),
+						StandardCharsets.UTF_8);
 	}
 
 	@NotNull
 	private Optional<PlayerJson> tryGetPlayerJsonByName(String name) {
 		try {
-			return Optional.of(getPlayerJsonByName(name));
-		} catch (IOException | FormatException | NullPointerException e) {
+			return Optional.ofNullable(getPlayerJsonByName(name));
+		} catch (IOException | FormatException e) {
 			AmidstLogger.warn("unable to load player information by name: {}", name);
 			return Optional.empty();
 		}
