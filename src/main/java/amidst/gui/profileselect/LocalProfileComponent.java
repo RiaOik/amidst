@@ -54,32 +54,33 @@ public class LocalProfileComponent extends ProfileComponent {
 		this.scaledProfileIcon = createScaledProfileIcon();
 		initComponent();
 	}
-	
+
 	@CalledOnlyBy(AmidstThread.EDT)
 	public Image createScaledProfileIcon() {
 		String icon = unresolvedProfile.getIcon();
-		if(icon != null && icon != "") {
-			final String prefix = "data:image/png;base64,";
-			Image image = null;
-			if(icon.startsWith(prefix)) {
-				icon = icon.substring(prefix.length());
-				try(ByteArrayInputStream stream = new ByteArrayInputStream(Base64.getDecoder().decode(icon))) {
+		if (icon == null || icon.isEmpty()) {
+			return null;
+		}
+
+		Image image = null;
+		if (icon.startsWith("data:image/png;base64,")) {
+			try {
+				byte[] decoded = Base64.getDecoder().decode(icon.substring("data:image/png;base64,".length()));
+				try (ByteArrayInputStream stream = new ByteArrayInputStream(decoded)) {
 					image = ImageIO.read(stream);
-				} catch (IOException e) {
-					AmidstLogger.warn("Unable to decode base64 icon");
 				}
-			} else {
-				try {
-					image = ImageIO.read(ResourceLoader.getResourceURL("/amidst/icon/profileicons/" + icon + ".png"));
-				} catch (IOException | IllegalArgumentException e) {
-					AmidstLogger.error("Error reading icon: " + icon);
-				}
+			} catch (IOException e) {
+				AmidstLogger.warn("Unable to decode base64 icon");
 			}
-			if(image != null) {
-				return image.getScaledInstance(32, 32, Image.SCALE_SMOOTH);
+		} else {
+			try {
+				image = ImageIO.read(ResourceLoader.getResourceURL("/amidst/icon/profileicons/" + icon + ".png"));
+			} catch (IOException | IllegalArgumentException e) {
+				AmidstLogger.error("Error reading icon: " + icon);
 			}
 		}
-		return null;
+
+		return image == null ? null : image.getScaledInstance(32, 32, Image.SCALE_SMOOTH);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -108,7 +109,7 @@ public class LocalProfileComponent extends ProfileComponent {
 		resolvedProfile = launcherProfile.orElse(null);
 		repaintComponent();
 	}
-	
+
 	@Override
 	protected Image getScaledProfileIcon() {
 		return scaledProfileIcon;
@@ -135,26 +136,27 @@ public class LocalProfileComponent extends ProfileComponent {
 
 	@CalledOnlyBy(AmidstThread.WORKER)
 	private Optional<RunningLauncherProfile> tryLoad() {
+		String profileName = resolvedProfile.getProfileName();
+		String versionName = resolvedProfile.getVersionName();
 		try {
-			AmidstLogger.info(
-					"using minecraft launcher profile '" + resolvedProfile.getProfileName() + "' with versionId '"
-							+ resolvedProfile.getVersionName() + "'");
+			AmidstLogger.info(String.format("Using Minecraft launcher profile '%s' with versionId '%s'", profileName,
+					versionName));
 			return Optional.of(launcherProfileRunner.run(resolvedProfile));
 		} catch (MinecraftInterfaceCreationException e) {
-			AmidstLogger.error(e);
-			AmidstMessageBox.displayError("Error", e);
+			String errorMessage = String.format("Error while using profile '%s' with versionId '%s'", profileName,
+					versionName);
+			AmidstLogger.error(errorMessage, e);
+			AmidstMessageBox.displayError("Error", errorMessage);
 			return Optional.empty();
 		}
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
-	private void loadFinished(Optional<RunningLauncherProfile> runningLauncherProfile) {
+	private void loadFinished(Optional<RunningLauncherProfile> runningProfile) {
 		isLoading = false;
-		failedLoading = !runningLauncherProfile.isPresent();
+		failedLoading = runningProfile.isEmpty();
 		repaintComponent();
-		if (runningLauncherProfile.isPresent()) {
-			application.displayMainWindow(runningLauncherProfile.get());
-		}
+		runningProfile.ifPresent(application::displayMainWindow);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -196,10 +198,6 @@ public class LocalProfileComponent extends ProfileComponent {
 	@CalledOnlyBy(AmidstThread.EDT)
 	@Override
 	protected String getVersionName() {
-		if (resolvedProfile != null) {
-			return resolvedProfile.getVersionName();
-		} else {
-			return "";
-		}
+		return resolvedProfile != null ? resolvedProfile.getVersionName() : "";
 	}
 }
